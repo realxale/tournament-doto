@@ -1,0 +1,21 @@
+# Build
+build/
+bin/
+.gradle/
+out/
+
+# IDE
+.idea/
+*.iml
+.classpath
+.project
+.settings/
+.vscode/
+
+# Logs
+*.log
+
+# Secrets
+env.env
+.env
+*.env
