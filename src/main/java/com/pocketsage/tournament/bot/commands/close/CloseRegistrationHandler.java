@@ -1,11 +1,14 @@
 package com.pocketsage.tournament.bot.commands.close;
 
+import com.pocketsage.tournament.bot.commands.closeban.CloseBanService;
+import com.pocketsage.tournament.model.CloseBan;
 import com.pocketsage.tournament.repository.CloseRepository;
 import com.pocketsage.tournament.repository.MatchRepository;
 import com.pocketsage.tournament.repository.PlayerRepository;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -63,7 +66,17 @@ public class CloseRegistrationHandler extends ListenerAdapter {
         this.matches = matches;
         this.players = players;
         this.scheduler = scheduler;
+        this.closeBanService = new CloseBanService();
     }
+
+    /**
+     * Проверка банов перед записью и стартом игры.
+     *
+     * <p>Создаётся сам, а не принимается снаружи: он завязан на глобальный
+     * реестр БД и не зависит от состояния конкретного клоза. Тестам, которым
+     * понадобится подмена, конструктор можно расширить.
+     */
+    private final CloseBanService closeBanService;
 
     /** Один поток на весь процесс: таймеры проверок готовности. */
     private static ScheduledExecutorService defaultScheduler() {
@@ -155,6 +168,17 @@ public class CloseRegistrationHandler extends ListenerAdapter {
         }
 
         long discordId = event.getUser().getIdLong();
+
+        // Проверяем бан до любых изменений: игрок мог записаться до бана,
+        // и тогда он всё равно не должен попасть на игру
+        Optional<CloseBan> ban = closeBanService.findActiveBan(discordId);
+        if (ban.isPresent()) {
+            event.reply(CloseBanService.formatRejection(ban.get()))
+                .setEphemeral(true)
+                .queue();
+            return;
+        }
+
         boolean signed = team == 0
             ? match.signUp(discordId)
             : match.signUpToTeam(discordId, team);

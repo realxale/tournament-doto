@@ -19,6 +19,9 @@ Discord-бот для организации клозов по Dota 2: созд�
 | `/help` | любой | Заглушка — команда зарегистрирована, обработчика нет |
 | `/info` | любой | Заглушка — команда зарегистрирована, обработчика нет |
 | `/create_close_cs` | любой | Заглушка под CS |
+| `/close_ban` | роль **Closemod** | Модалка: игрок, причина, срок в часах (пусто = навсегда) |
+| `/close_unban` | роль **Closemod** | Снимает бан по игроку |
+| `/close_ban_show` | роль **Closemod** | История банов игрока |
 
 ### Ключевая модель: клоз — это серия матчей
 
@@ -66,6 +69,13 @@ OpenDota его не знает, остаётся ручной `/bind_old`.
 
 **Отмена клоза.** Кнопка «Удалить клоз» удаляет категорию со всеми каналами.
 Доступна Closemod или самому клозеру.
+
+**Баны в клозах.** `/close_ban` выдаёт глобальный бан: игрок не запишется ни в
+один клоз, пока срок не истёк. Срок задаётся в часах, пустое поле — навсегда.
+Забаненный видит причину при попытке записаться. Бан хранится в БД, поэтому
+переживает перезапуск бота; по истечении срока он перестаёт действовать сам,
+а досрочно снимается через `/close_unban`. `/close_ban_show` показывает историю
+всех банов игрока. Все три команды доступны только роли Closemod.
 
 ---
 
@@ -125,6 +135,9 @@ src/main/java/com/pocketsage/tournament/
 │   ├── OpenDotaClient.java       # разбор Steam ID и ответ OpenDota
 │   ├── SteamBindOldHandler.java  # /bind_old: ручной ввод ника
 │   ├── SteamBindService.java     # сохранение профиля
+│   └── closeban/
+│       ├── CloseBanHandler.java    # /close_ban, /close_unban, /close_ban_show
+│       └── CloseBanService.java    # срок в часах, тексты для Discord
 │   └── close/
 │       ├── DotaCloseHandler.java        # /create_close_dota: роль + модалка
 │       ├── DotaCloseService.java        # категория, каналы, права, сообщения
@@ -150,8 +163,8 @@ src/main/resources/db/migration/ # V1 init, V2 steam_name, V3 close/match, V4 ni
 ## Тесты
 
 ```bash
-./gradlew test   # 76 тестов: CloseMatchTest(29), CloseRegistrationTest(21),
-                 # OpenDotaClientTest(16), CloseMessagesTest(7),
+./gradlew test   # 99 тестов: CloseMatchTest(29), CloseRegistrationTest(21),
+                 # OpenDotaClientTest(16), CloseBanTest(23), CloseMessagesTest(7),
                  # SteamBindServiceTest(3, требует Docker)
 ```
 

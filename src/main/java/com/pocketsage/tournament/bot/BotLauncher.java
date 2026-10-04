@@ -5,6 +5,7 @@ import com.pocketsage.tournament.bot.commands.SteamBindHandler;
 import com.pocketsage.tournament.bot.commands.SteamBindOldHandler;
 import com.pocketsage.tournament.bot.commands.close.CloseRegistrationHandler;
 import com.pocketsage.tournament.bot.commands.close.DotaCloseHandler;
+import com.pocketsage.tournament.bot.commands.closeban.CloseBanHandler;
 import com.pocketsage.tournament.config.EnvLoader;
 import com.pocketsage.tournament.repository.Database;
 import net.dv8tion.jda.api.JDA;
@@ -51,6 +52,7 @@ public class BotLauncher {
                 new SteamBindHandler(),
                 new SteamBindOldHandler(),
                 new DotaCloseHandler(),
+                new CloseBanHandler(),
                 new CloseRegistrationHandler()
             )
             .build();
