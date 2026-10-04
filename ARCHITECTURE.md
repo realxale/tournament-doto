@@ -335,7 +335,7 @@ id модалки `dota_draft:<team>:<categoryId>`, `teamOf(modalId)` и
 - **`match.result` остаётся `NULL`** — победителя нужно записывать отдельно.
 - **SQL-запросы репозиториев не покрыты тестами** (нужен Docker для Testcontainers):
   проверялись вручную на локальном Postgres через `PREPARE`.
-- Каталог **не под git** — истории изменений нет. Стоит завести репозиторий.
+- Каталог под git (`master`, релиз `v1.0`). Функциональное описание и команды — в `README.md`.
 - `/create_close_cs` зарегистрирован, но обработчика нет.
 | `V2__player_steam_name.sql` | `players.steam_name` (имя из `/bind`, SteamID64 позже) + индекс `lower(steam_name)`. |
 | `V3__close_match_params.sql` | Разделяет клоз и матч: `close` (+`discord_category_id` UNIQUE, параметры модалки, `close_number_seq`, `DEFAULT now()`), `match` (+`number`, `status`, копия параметров), уникальный индекс `(close_id, number)`, индекс по `status`. |

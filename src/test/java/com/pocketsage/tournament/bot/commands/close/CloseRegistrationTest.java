@@ -17,6 +17,15 @@ class CloseRegistrationTest {
     private static final String CATEGORY = "555";
     private static final long HOST = 100L;
 
+    // Позиции кнопок в ряду matchControlButtons. Ряд содержит пять кнопок —
+    // это лимит Discord на один ActionRow, поэтому порядок зафиксирован, а
+    // индексы названы: нумерация не должна разъезжаться при правках тестов.
+    private static final int BTN_MATCH_START = 0;
+    private static final int BTN_READY_START = 1;
+    private static final int BTN_GAME_START = 2;
+    private static final int BTN_MATCH_DELETE = 3;
+    private static final int BTN_MATCH_FINISH = 4;
+
     private static CloseRegistration close() {
         return new CloseRegistration(1L, CATEGORY, 7, HOST, false, "cm", true);
     }
@@ -70,18 +79,50 @@ class CloseRegistrationTest {
     // ===== Кнопки «управление» =====
 
     @Test
-    void matchControlHasCreateStartDeleteAndFinish() {
+    void matchControlHasCreateReadyStartDeleteAndFinish() {
         List<Button> buttons = CloseRegistrations.matchControlButtons(close()).getButtons();
 
-        assertEquals(4, buttons.size());
+        assertEquals(5, buttons.size());
         assertEquals(CloseRegistrations.ACTION_MATCH_START + ":" + CATEGORY,
-            buttons.get(0).getCustomId());
-        assertEquals("Создать матч", buttons.get(0).getLabel());
+            buttons.get(BTN_MATCH_START).getCustomId());
+        assertEquals("Создать матч", buttons.get(BTN_MATCH_START).getLabel());
+        assertEquals(CloseRegistrations.ACTION_READY_START + ":" + CATEGORY,
+            buttons.get(BTN_READY_START).getCustomId());
+        assertEquals("Проверка готовности", buttons.get(BTN_READY_START).getLabel());
         assertEquals(CloseRegistrations.ACTION_GAME_START + ":" + CATEGORY,
-            buttons.get(1).getCustomId());
-        assertEquals("Начать игру", buttons.get(1).getLabel());
-        assertEquals("Удалить матч", buttons.get(2).getLabel());
-        assertEquals("Завершить матч", buttons.get(3).getLabel());
+            buttons.get(BTN_GAME_START).getCustomId());
+        assertEquals("Начать игру", buttons.get(BTN_GAME_START).getLabel());
+        assertEquals("Удалить матч", buttons.get(BTN_MATCH_DELETE).getLabel());
+        assertEquals("Завершить матч", buttons.get(BTN_MATCH_FINISH).getLabel());
+    }
+
+    /** Проверять готовность имеет смысл, только когда матч объявлен и есть кому отвечать. */
+    @Test
+    void readyStartIsBlockedWithoutAnnouncedParticipants() {
+        CloseRegistration close = close();
+        assertTrue(
+            CloseRegistrations.matchControlButtons(close).getButtons().get(BTN_READY_START).isDisabled(),
+            "матч не объявлен — проверять некого"
+        );
+
+        CloseMatch match = new CloseMatch(1L, close.getCloseId(), CATEGORY, 1, HOST, false, "cm", true);
+        close.setCurrentMatch(match);
+        assertTrue(
+            CloseRegistrations.matchControlButtons(close).getButtons().get(BTN_READY_START).isDisabled(),
+            "карточка ещё не опубликована"
+        );
+
+        match.markAnnounced();
+        assertTrue(
+            CloseRegistrations.matchControlButtons(close).getButtons().get(BTN_READY_START).isDisabled(),
+            "никто не записался"
+        );
+
+        match.signUp(100_000_000_000_000_000L);
+        assertFalse(
+            CloseRegistrations.matchControlButtons(close).getButtons().get(BTN_READY_START).isDisabled(),
+            "есть записанный — можно запускать проверку"
+        );
     }
 
     /** «Начать игру» гаснет, пока в объявленном матче не собраны все 10 игроков. */
@@ -94,13 +135,13 @@ class CloseRegistrationTest {
         CloseMatch match = new CloseMatch(1L, close.getCloseId(), CATEGORY, 1, HOST, false, "cm", true);
         close.setCurrentMatch(match);
         assertTrue(
-            CloseRegistrations.matchControlButtons(close).getButtons().get(1).isDisabled(),
+            CloseRegistrations.matchControlButtons(close).getButtons().get(BTN_GAME_START).isDisabled(),
             "карточка ещё не опубликована"
         );
 
         match.markAnnounced();
         assertTrue(
-            CloseRegistrations.matchControlButtons(close).getButtons().get(1).isDisabled(),
+            CloseRegistrations.matchControlButtons(close).getButtons().get(BTN_GAME_START).isDisabled(),
             "никто не записался"
         );
 
@@ -108,7 +149,7 @@ class CloseRegistrationTest {
             match.signUp(100_000_000_000_000_000L + i);
         }
         assertFalse(
-            CloseRegistrations.matchControlButtons(close).getButtons().get(1).isDisabled(),
+            CloseRegistrations.matchControlButtons(close).getButtons().get(BTN_GAME_START).isDisabled(),
             "все 10 на месте — можно разводить по голосовым"
         );
     }
@@ -117,26 +158,26 @@ class CloseRegistrationTest {
     void startIsAvailableUntilCardIsPublished() {
         CloseRegistration close = close();
         List<Button> before = CloseRegistrations.matchControlButtons(close).getButtons();
-        assertFalse(before.get(0).isDisabled(), "матч не объявлен — можно создавать");
+        assertFalse(before.get(BTN_MATCH_START).isDisabled(), "матч не объявлен — можно создавать");
 
         CloseMatch match = new CloseMatch(1L, close.getCloseId(), CATEGORY, 1, HOST, false, "cm", true);
         close.setCurrentMatch(match);
         List<Button> silent = CloseRegistrations.matchControlButtons(close).getButtons();
-        assertFalse(silent.get(0).isDisabled(), "карточка ещё не опубликована");
+        assertFalse(silent.get(BTN_MATCH_START).isDisabled(), "карточка ещё не опубликована");
 
         match.markAnnounced();
         List<Button> announced = CloseRegistrations.matchControlButtons(close).getButtons();
-        assertTrue(announced.get(0).isDisabled(), "матч уже идёт");
-        assertFalse(announced.get(2).isDisabled(), "идущий матч можно удалить");
-        assertFalse(announced.get(3).isDisabled(), "идущий матч можно завершить");
+        assertTrue(announced.get(BTN_MATCH_START).isDisabled(), "матч уже идёт");
+        assertFalse(announced.get(BTN_MATCH_DELETE).isDisabled(), "идущий матч можно удалить");
+        assertFalse(announced.get(BTN_MATCH_FINISH).isDisabled(), "идущий матч можно завершить");
     }
 
     @Test
     void deleteAndFinishAreBlockedWithoutActiveMatch() {
         List<Button> buttons = CloseRegistrations.matchControlButtons(close()).getButtons();
 
-        assertTrue(buttons.get(2).isDisabled(), "нечего удалять");
-        assertTrue(buttons.get(3).isDisabled(), "нечего завершать");
+        assertTrue(buttons.get(BTN_MATCH_DELETE).isDisabled(), "нечего удалять");
+        assertTrue(buttons.get(BTN_MATCH_FINISH).isDisabled(), "нечего завершать");
     }
 
     @Test
@@ -150,7 +191,10 @@ class CloseRegistrationTest {
 
         List<Button> buttons = CloseRegistrations.matchControlButtons(close).getButtons();
 
-        assertFalse(buttons.get(0).isDisabled(), "клоз ждёт следующего матча");
+        assertFalse(
+            buttons.get(BTN_MATCH_START).isDisabled(),
+            "клоз ждёт следующего матча"
+        );
     }
 
     @Test

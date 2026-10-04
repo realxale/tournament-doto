@@ -4,7 +4,7 @@
 
 - Стек: Java 21, JDA 6.5.0, PostgreSQL (драйвер 42.7.4) + HikariCP 5.1.0, Flyway 10.17.0, logback, dotenv-java, Jackson. Сборка: Gradle (wrapper 9.7.1).
 - Точка входа: `com.pocketsage.tournament.Main` → `BotLauncher`.
-- Версия: `0.1.0`.
+- Версия: `1.0.0`.
 
 ---
 
@@ -13,7 +13,7 @@
 ```
 ./gradlew run      # запуск бота
 ./gradlew test     # тесты
-./gradlew build    # сборка + тесты + jar (build/libs/tournament-doto-0.1.0.jar)
+./gradlew build    # сборка + тесты + jar (build/libs/tournament-doto-1.0.0.jar)
 ```
 
 Конфиг читается из **`.env`** в корне проекта; если `.env` нет — из шаблона **`env.env`** (`EnvLoader`).
@@ -143,7 +143,7 @@ Toxic: да 🔥
 - Если клоз уже неактивен (после отмены или после перезапуска бота):
   «❌ Этот клоз больше не активен.»
 
-### 3.3 Проверка готовности (кнопка в карточке матча, сейчас скрыта)
+### 3.3 Проверка готовности (кнопка в «управлении»)
 
 1. Бот пишет **в «запись»** сообщение с кнопкой `Я готов`:
 
@@ -289,7 +289,8 @@ Toxic: да 🔥
 ## 7. Как проверить работу
 
 ```
-./gradlew test          # 21 тест: CloseRegistrationTest(12), CloseMessagesTest(6), SteamBindServiceTest(3)
+./gradlew test          # 60 тестов: CloseMatchTest(29), CloseRegistrationTest(21),
+                       # CloseMessagesTest(7), SteamBindServiceTest(3, требует Docker)
 ./gradlew build         # + сборка jar
 ```
 
