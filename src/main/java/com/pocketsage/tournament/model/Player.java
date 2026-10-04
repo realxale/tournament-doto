@@ -58,6 +58,24 @@ public class Player {
         this.steamName = steamName;
     }
 
+    /** SteamID64 — приходит из OpenDota при /bind, не из формы. */
+    public void setSteamId(Long steamId) {
+        this.steamId = steamId;
+    }
+
+    /** Dota account_id — тот же источник, что и steamId. */
+    public void setDotaAccountId(Long dotaAccountId) {
+        this.dotaAccountId = dotaAccountId;
+    }
+
+    /**
+     * MMR обновляется только если OpenDota его отдала: у закрытых профилей
+     * оценки нет, и затирать уже сохранённую (например, из /bind_old) нельзя.
+     */
+    public void setMmr(Integer mmr) {
+        this.mmr = mmr;
+    }
+
     // ===== getters =====
     public Long getId() {
         return this.id;

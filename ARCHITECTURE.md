@@ -189,16 +189,63 @@ POJO игрока: `id`, `discordId`, `steamId`, `dotaAccountId`, `name`, `steam
 На `ReadyEvent` регистрирует `/help`, `/info`, `/create_close_cs` (заглушка под CS).
 
 #### `bot/commands/SteamBindHandler.java`
-`/bind`: модалка с одним полем (2–64 символа), при submit валидирует значение и
-вызывает `SteamBindService`. `deferReply(true)` — соединение с БД может не
-укладываться в 3 секунды. Детали `SQLException` уходят только в лог:
-доступы к БД нельзя светить в Discord.
+`/bind`: модалка с полем «Steam ID» (1–32 символа). Игрок вводит только
+идентификатор — ник, ранг и MMR бот добирает сам через OpenDota, поэтому руками
+вводить нечего. `deferReply(true)` обязателен: модалку надо подтвердить за 3 секунды,
+а HTTP-запрос к API столько может не занять.
+
+Различает четыре исхода и отвечает по-разному: неверный формат id
+(`IllegalArgumentException`), аккаунт не найден или профиль закрыт
+(`SteamProfileException`), сеть недоступна (`IOException`) — в последних двух
+детали уходят в лог, игроку только текст; и успешная запись. При `SQLException`
+подсказывает вероятную причину: `steam_id` в БД `UNIQUE`, то есть аккаунт мог
+быть уже привязан к другому профилю.
+
+Собирает строку ответа через `buildSuccessMessage`: ник, MMR и название ранга
+(`rankName` переводит 1–8 в Herald…Immortal).
+
+#### `bot/commands/OpenDotaClient.java`
+Клиент OpenDota на `java.net.http.HttpClient` + Jackson. Ключ из
+`OPENDOTA_APIKEY` подставляется в query только если он непустой — **API работает и
+без ключа**, просто с общим низким лимитом.
+
+- `parseAccountId(String)` — чистая функция, поэтому тестируется без сети.
+  Принимает `account_id`, SteamID64 (вычитается база 76561197960265728),
+  `STEAM_0:Y:Z` (формула `Z*2 + Y`) и ссылку с числовым хвостом. Vanity-имена
+  (`steamcommunity.com/id/имя`) **отклоняются**: превратить их в `account_id`
+  OpenDota не умеет, поэтому честная ошибка лучше выдуманного id.
+- `mapProfile(JsonNode, long)` — тоже чистая функция. Ответ OpenDota неоднороден:
+  профиль лежит в объекте `profile`, а `rank_tier` и `computed_mmr` — на верхнем
+  уровне, причём у закрытых профилей верхнего уровня может не быть. Поле `name`
+  предпочтительнее `personaname` — это ник в Steam, а не ник в игре.
+- `send(HttpRequest)` — обёртка: `InterruptedException` сворачивается в
+  `IOException` **сохраняя флаг прерывания**, иначе отмена задачи JDA перестала бы
+  работать.
+
+Внутренние `SteamProfile` (record) и `SteamProfileException` (extends IOException)
+живут здесь же: исключение — `IOException`, потому что это сетевая ошибка, но
+сообщение у него безопасно для показа игроку.
+
+#### `bot/commands/SteamBindOldHandler.java`
+`/bind_old`: прежний `/bind`, переименованный без изменения логики (поменялись
+только имя команды и id модалки — `steam_bind_old_modal`). Нужен там, где
+OpenDota ничего не знает: профиль закрыт настройками приватности или игрок хочет
+задать ник вручную.
 
 #### `bot/commands/SteamBindService.java`
-Бизнес-логика привязки: нет игрока → создать, есть → обновить `steam_name`.
-`players.name` — `NOT NULL`, поэтому при пустом Discord-имени берётся `steam_name`.
+Бизнес-логика привязки: нет игрока → создать, есть → обновить.
+`players.name` — `NOT NULL`, поэтому при пустом Discord-имени берётся `steam_name`
+(а если и его нет, в `nameOrDefault` есть последний фолбэк `"player"`).
 Возвращает `record BindResult(Player player, boolean created)`.
-Конструктор с готовым репозиторием — для тестов.
+
+Два метода записи:
+- `bind(...)` — для `/bind_old`, обновляет только `steam_name`;
+- `bindProfile(...)` — для `/bind`, пишет `steam_id`, `dota_account_id`,
+  `steam_name` и `mmr`.
+
+MMR обновляется **только если OpenDota его отдала**: у закрытых профилей оценки
+нет, и затирать уже сохранённую нельзя — поэтому в `bindProfile` стоит отдельная
+проверка на `null`. Конструктор с готовым репозиторием — для тестов.
 
 ### Клоз и матчи — `bot/commands/close/`
 
@@ -309,6 +356,7 @@ id модалки `dota_draft:<team>:<categoryId>`, `teamOf(modalId)` и
 | `close/CloseRegistrationTest.java` | Клоз как серия матчей: нумерация матчей, наследование параметров модалки, реестр, состояния кнопок управления. |
 | `close/CloseMessagesTest.java` | `custom_id` кнопок в лимите Discord, маршрутизация нажатий, отсутствие путаницы `match_ready` / `close_ready`, длина сообщений. |
 | `SteamBindServiceTest.java` | Привязка Steam (требует Docker для Testcontainers). |
+| `OpenDotaClientTest.java` | Разбор Steam ID (account_id, SteamID64, `STEAM_0:Y:Z`, ссылка, мусор) и разбор ответа OpenDota (данные есть, только personaname, закрытый профиль, ошибка). Сеть не трогается — обе проверяемые функции чистые. |
 
 ---
 
@@ -322,8 +370,10 @@ id модалки `dota_draft:<team>:<categoryId>`, `teamOf(modalId)` и
 
 Что нужно для запуска:
 1. Роль `Closemod` на сервере Discord (иначе клозы не создаются).
-2. PostgreSQL — Flyway сам накатит `V1`–`V3` при первом запуске.
+2. PostgreSQL — Flyway сам накатит `V1`–`V4` при первом запуске.
 3. `env.env` (или `.env`) с `DISCORD_TOKEN` и параметрами БД.
+4. Доступ в интернет — `/bind` ходит в OpenDota. `OPENDOTA_APIKEY` необязателен:
+   без него API работает с общим низким лимитом.
 
 ---
 

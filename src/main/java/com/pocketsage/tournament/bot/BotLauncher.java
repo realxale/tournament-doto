@@ -2,6 +2,7 @@ package com.pocketsage.tournament.bot;
 
 import com.pocketsage.tournament.bot.commands.CommandRegistry;
 import com.pocketsage.tournament.bot.commands.SteamBindHandler;
+import com.pocketsage.tournament.bot.commands.SteamBindOldHandler;
 import com.pocketsage.tournament.bot.commands.close.CloseRegistrationHandler;
 import com.pocketsage.tournament.bot.commands.close.DotaCloseHandler;
 import com.pocketsage.tournament.config.EnvLoader;
@@ -48,6 +49,7 @@ public class BotLauncher {
             .addEventListeners(
                 new CommandRegistry(),
                 new SteamBindHandler(),
+                new SteamBindOldHandler(),
                 new DotaCloseHandler(),
                 new CloseRegistrationHandler()
             )

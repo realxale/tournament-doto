@@ -24,7 +24,7 @@
 | `DATABASE_URL` | да | JDBC-строка, например `jdbc:postgresql://localhost:5432/tournament` |
 | `DATABASE_LOGIN` | да | пользователь БД |
 | `DATABASE_PASSWORD` | да | пароль БД |
-| `OPENDOTA_APIKEY` | нет | пока **нигде не используется** (задел на OpenDota) |
+| `OPENDOTA_APIKEY` | нет | ключ OpenDota для `/bind`; без него API работает, но с общим низким лимитом |
 
 Порядок старта:
 
@@ -44,7 +44,8 @@
 
 | Команда | Описание в Discord | Кто может | Что делает сейчас |
 |---|---|---|---|
-| `/bind` | Привязать Steam name к профилю | любой участник | модалка «Привязка Steam» с полем `Steam name` (2–64 символа); создаёт или обновляет игрока в БД, отвечает эфемерно «✅ Steam привязан: **…** 🎮 Профиль создан в базе» / «♻️ Профиль обновлён» |
+| `/bind` | Привязать Steam-аккаунт по Steam ID | любой участник | модалка с полем `Steam ID`; бот принимает `account_id`, SteamID64, `STEAM_0:Y:Z` или ссылку с числовым хвостом, разбирает его в `account_id` и ходит в OpenDota. Ответ эфемерно: «✅ Steam привязан: **…** 🎮 Профиль создан в базе / ♻️ Профиль обновлён», с MMR и рангом, если OpenDota их отдал |
+| `/bind_old` | Привязать Steam name вручную | любой участник | прежний `/bind`: модалка «Привязка Steam (вручную)» с полем `Steam name` (2–64 символа). Заполняет только `steam_name`, без `steam_id`, `dota_account_id` и MMR |
 | `/create_close_dota` | Создать клоз Dota 2 | только роль **Closemod** (проверяется при вызове и повторно при отправке модалки) | модалка `Immortal draft?` (Y/N), `Gamemode` (Captains Mode / All Pick), `Toxic mode` (Y/N) → создаёт категорию, каналы, права и два сообщения (раздел 3) |
 | `/help` | Узнать о командах | любой | **заглушка** — команда есть, обработчика нет, бот не отвечает |
 | `/info` | Показать информацию о вас | любой | **заглушка** — обработчика нет |
@@ -55,11 +56,16 @@
 - команды регистрируются как **глобальные** (`upsertCommand` без гильдии) — в клиенте Discord
   могут появиться не сразу (до ~часа);
 - каждую команду регистрирует свой обработчик (`CommandRegistry` — `/help`, `/info`, `/create_close_cs`,
-  `SteamBindHandler` — `/bind`, `DotaCloseHandler` — `/create_close_dota`);
+  `SteamBindHandler` — `/bind`, `SteamBindOldHandler` — `/bind_old`,
+  `DotaCloseHandler` — `/create_close_dota`);
 - в `DotaCloseHandler` имя роли сравнивается точно как `Closemod`, а в `DotaCloseService`
   и в кнопке отмены — без учёта регистра;
-- при ошибке БД в `/bind` детали уходят в лог, а игроку показывается
-  «❌ Не удалось сохранить привязку, попробуйте позже.»
+- при ошибке БД в `/bind` и `/bind_old` детали уходят в лог, а игроку показывается
+  общее сообщение об ошибке;
+- `/bind` ходит в OpenDota при каждом вызове, поэтому нужен доступ в интернет;
+  `429` и «не найдено» отличаются от «сеть недоступна» разными ответами;
+- у двух команд разные id модалок (`steam_bind_modal` и `steam_bind_old_modal`) —
+  это их единственная связь в Discord, путать нельзя.
 
 ## 3. Клоз Dota 2: полный сценарий
 
@@ -213,16 +219,26 @@ Toxic: да 🔥
 
 | Что | Когда | Колонки |
 |---|---|---|
-| INSERT | первый `/bind` | `discord_id`, `name` (имя в Discord), `steam_name`; `steam_id`/`dota_account_id`/`mmr = null`, `win_points = 0` |
-| UPDATE | повторный `/bind` | `steam_name`, `updated_at = now()` (плюс остальные поля из объекта игрока) |
-| SELECT | `/bind`, проверка дубля | по `discord_id` |
+| INSERT | первый `/bind` | `discord_id`, `name` (имя в Discord), `steam_id`, `dota_account_id`, `steam_name`, `mmr` (если OpenDota отдал), `win_points = 0` |
+| INSERT | первый `/bind_old` | `discord_id`, `name`, `steam_name`; остальные Steam-поля — `null` |
+| UPDATE | повторный `/bind` | `steam_id`, `dota_account_id`, `steam_name`, `mmr` (только если OpenDota его отдал — иначе старое значение не затирается), `updated_at = now()` |
+| UPDATE | повторный `/bind_old` | `steam_name`, `updated_at = now()` |
+| SELECT | `/bind`, `/bind_old`, проверка дубля | по `discord_id` |
 
 Важно:
 
-- `players.steam_id` (BIGINT UNIQUE) — **под SteamID64**, он остаётся пустым, пока не появится
-  получение профиля через OpenDota. В `/bind` пишется **имя** Steam-аккаунта (`steam_name`), потому что
-  модалка спрашивает именно имя.
-- `discord_id` уникален: повторный `/bind` обновляет существующую строку, второй не создаётся.
+- `players.steam_id` (BIGINT UNIQUE) — **под SteamID64**, приходит из OpenDota
+  в `/bind`. Раньше колонка оставалась пустой, теперь заполняется.
+- `players.dota_account_id` — тоже из OpenDota (SteamID32 = account_id).
+- `players.mmr` — оценка MMR из OpenDota; при повторном `/bind` **не затирается**,
+  если API её не вернул: это защищает значение, записанное ранее.
+- `players.rank_tier` — **не пишется**: ранг приходит в API, показывается в ответе
+  команды, но в модели `Player` поля нет.
+- Vanity-имя Steam (`steamcommunity.com/id/xxx`) в `/bind` не принимается —
+  OpenDota не умеет превращать его в `account_id`.
+- `steam_id` уникален: один Steam-аккаунт нельзя привязать к двум Discord-профилям
+  (конфликт ловится как `SQLException` и показывается игроку общим текстом).
+- `discord_id` уникален: повторный bind обновляет существующую строку, второй не создаётся.
 - Таблицы клозов/матчей/ставок/очков **созданы, но кодом не используются** — состояние активных
   клозов живёт в памяти процесса (см. раздел 6).
 - Пользователю БД нужны: DDL для миграций (`CREATE TABLE`, `ALTER TABLE`, `CREATE INDEX`),
@@ -281,7 +297,7 @@ Toxic: да 🔥
 - **«Отмена клоза» без подтверждения** — сразу удаляет категорию.
 - `/help`, `/info`, `/create_close_cs` — зарегистрированные заглушки без обработчиков.
 - Матчи, ставки, `points_tx`, отчёты по клозам/дню — не реализованы.
-- `OPENDOTA_APIKEY` и `players.steam_id`/`mmr`/`rank_tier` пока не заполняются.
+- `players.rank_tier` не заполняется (ранг показывается в ответе `/bind`, но в модель не занесён).
 - Проверка готовности — единственный таймер в боте; он живёт в памяти (шедулер JDA `getGatewayPool()`).
 
 ---
@@ -289,8 +305,9 @@ Toxic: да 🔥
 ## 7. Как проверить работу
 
 ```
-./gradlew test          # 60 тестов: CloseMatchTest(29), CloseRegistrationTest(21),
-                       # CloseMessagesTest(7), SteamBindServiceTest(3, требует Docker)
+./gradlew test          # 76 тестов: CloseMatchTest(29), CloseRegistrationTest(21),
+                       # OpenDotaClientTest(16), CloseMessagesTest(7),
+                       # SteamBindServiceTest(3, требует Docker)
 ./gradlew build         # + сборка jar
 ```
 
@@ -317,8 +334,10 @@ src/main/java/com/pocketsage/tournament/
 ├── bot/BotLauncher.java          # миграции → JDA, graceful shutdown
 ├── bot/commands/
 │   ├── CommandRegistry.java      # регистрация /help, /info, /create_close_cs
-│   ├── SteamBindHandler.java     # /bind: модалка
-│   ├── SteamBindService.java     # логика привязки (создать/обновить игрока)
+│   ├── SteamBindHandler.java     # /bind: Steam ID → OpenDota → профиль в БД
+│   ├── OpenDotaClient.java       # разбор Steam ID и ответ OpenDota
+│   ├── SteamBindOldHandler.java  # /bind_old: ручной ввод ника
+│   ├── SteamBindService.java     # сохранение профиля (создать/обновить игрока)
 │   └── close/
 │       ├── DotaCloseHandler.java        # /create_close_dota: роль + модалка
 │       ├── DotaCloseService.java        # категория, каналы, права, 2 сообщения

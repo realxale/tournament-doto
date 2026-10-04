@@ -14,7 +14,8 @@ Discord-бот для организации клозов по Dota 2: созд�
 | Команда | Кто может | Что делает |
 |---|---|---|
 | `/create_close_dota` | роль **Closemod** | Модалка с параметрами (Immortal draft, Gamemode, Toxic) → создаёт категорию клоза и каналы |
-| `/bind` | любой | Модалка на Steam-ник (2–64 символа) → создаёт или обновляет профиль в БД |
+| `/bind` | любой | Модалка со Steam ID → бот сам подтягивает ник, ранг и MMR через OpenDota и записывает их в БД |
+| `/bind_old` | любой | Ручная привязка: ввод ника вручную, если OpenDota ничего не знает об аккаунте |
 | `/help` | любой | Заглушка — команда зарегистрирована, обработчика нет |
 | `/info` | любой | Заглушка — команда зарегистрирована, обработчика нет |
 | `/create_close_cs` | любой | Заглушка под CS |
@@ -53,6 +54,12 @@ Discord-бот для организации клозов по Dota 2: созд�
 **Раскидка по голосовым.** При записи игрок уходит в «ожидание», кнопка «Начать игру»
 (доступна при 10 собранных) раскидывает по «команда-а» / «команда-б».
 
+**Привязка аккаунта.** `/bind` просит только Steam ID — принимается `account_id`
+из клиента Dota, SteamID64, `STEAM_0:Y:Z` или ссылка на профиль с числовым хвостом.
+Бот сам обращается к OpenDota и записывает ник, ранг и MMR, поэтому вводить руками
+ничего, кроме ID, не нужно. Если профиль закрыт настройками приватности или
+OpenDota его не знает, остаётся ручной `/bind_old`.
+
 **Подмена ников.** На старте матча ники участников меняются на Steam-ники из `/bind`,
 при завершении, удалении матча или удалении клоза — возвращаются обратно.
 Игрок без `/bind` не трогается, чтобы не потерять имя.
@@ -74,7 +81,7 @@ Discord-бот для организации клозов по Dota 2: созд�
 | `DATABASE_URL` | да | `jdbc:postgresql://localhost:5432/tournament` |
 | `DATABASE_LOGIN` | да | пользователь БД |
 | `DATABASE_PASSWORD` | да | пароль БД |
-| `OPENDOTA_APIKEY` | нет | задел на OpenDota, пока не используется |
+| `OPENDOTA_APIKEY` | нет | ключ OpenDota; без него API работает, но с общим низким лимитом |
 
 > `.env` и `env.env` в git не попадают — они под `.gitignore`.
 
@@ -114,8 +121,10 @@ src/main/java/com/pocketsage/tournament/
 ├── bot/BotLauncher.java          # миграции → JDA, graceful shutdown
 ├── bot/commands/
 │   ├── CommandRegistry.java      # /help, /info, /create_close_cs
-│   ├── SteamBindHandler.java     # /bind: модалка
-│   ├── SteamBindService.java     # логика привязки
+│   ├── SteamBindHandler.java     # /bind: Steam ID → OpenDota → профиль в БД
+│   ├── OpenDotaClient.java       # разбор Steam ID и ответ OpenDota
+│   ├── SteamBindOldHandler.java  # /bind_old: ручной ввод ника
+│   ├── SteamBindService.java     # сохранение профиля
 │   └── close/
 │       ├── DotaCloseHandler.java        # /create_close_dota: роль + модалка
 │       ├── DotaCloseService.java        # категория, каналы, права, сообщения
@@ -141,8 +150,9 @@ src/main/resources/db/migration/ # V1 init, V2 steam_name, V3 close/match, V4 ni
 ## Тесты
 
 ```bash
-./gradlew test   # 60 тестов: CloseMatchTest(29), CloseRegistrationTest(21),
-                 # CloseMessagesTest(7), SteamBindServiceTest(3, требует Docker)
+./gradlew test   # 76 тестов: CloseMatchTest(29), CloseRegistrationTest(21),
+                 # OpenDotaClientTest(16), CloseMessagesTest(7),
+                 # SteamBindServiceTest(3, требует Docker)
 ```
 
 `SteamBindServiceTest` накатывает Flyway на реальную БД и пропускается без
@@ -166,5 +176,9 @@ TEST_DATABASE_PASSWORD=secret \
 - **Балансировка по MMR не реализована** — команды заполняются по порядку записи.
 - **`match.result` остаётся `NULL`** — победителя нужно записывать отдельно.
 - **Отмена клоза без подтверждения** — сразу удаляет категорию.
-- `OPENDOTA_APIKEY`, `players.steam_id`, `mmr`, `rank_tier` пока не заполняются.
+- **Закрытый профиль Steam** (приватность в Dota) не даёт ник — `/bind` предложит
+  `/bind_old`. Vanity-ссылки (`steamcommunity.com/id/имя`) не принимаются: OpenDota
+  не умеет разворачивать их в ID.
+- `players.rank_tier` из OpenDota пока не сохраняется — ранг показывается в ответе
+  команды, но в БД не пишется. `dota_account_id` и `steam_id` заполняются.
 - Ставки, очки (`points_tx`) и отчёты по клозам не реализованы.
