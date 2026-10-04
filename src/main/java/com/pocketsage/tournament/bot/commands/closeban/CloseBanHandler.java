@@ -210,7 +210,7 @@ public class CloseBanHandler extends ListenerAdapter {
         long targetId = target.getIdLong();
         event.deferReply(true).queue(hook -> {
             try {
-                boolean lifted = service.liftBan(targetId, event.getUser().getIdLong());
+                boolean lifted = service.liftBan(targetId);
                 hook
                     .sendMessage(
                         lifted

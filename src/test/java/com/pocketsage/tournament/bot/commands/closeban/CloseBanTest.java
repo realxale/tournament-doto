@@ -24,16 +24,17 @@ class CloseBanTest {
     private static final long MODERATOR = 7L;
 
 
+    /**
+     * Бан, выданный 3 часа назад: срок считается как timeEnd - createdAt,
+     * поэтому в created_at кладём «3 часа назад минус срок».
+     */
     private static CloseBan ban(Instant timeEnd, boolean lifted) {
+        Instant createdAt = Instant.now().minus(1, ChronoUnit.HOURS);
         return new CloseBan(
-            1L,
             PLAYER,
             "AFK на 5 минут",
-            timeEnd == null ? CloseBan.FOREVER : 3,
-            Instant.now().minus(1, ChronoUnit.HOURS),
+            createdAt,
             timeEnd,
-            lifted,
-            lifted ? MODERATOR : null,
             lifted ? Instant.now() : null
         );
     }
@@ -135,6 +136,34 @@ class CloseBanTest {
             lifted.isActiveAt(Instant.now()),
             "снятый бан не действует даже до конца своего срока"
         );
+    }
+
+    @Test
+    void durationIsComputedFromTimeEndAndCreatedAt() {
+        // колонки duration_hours нет — срок выводится как разница дат
+        Instant created = Instant.now().minus(30, ChronoUnit.MINUTES);
+        CloseBan timed = new CloseBan(
+            PLAYER,
+            "AFK",
+            created,
+            created.plus(3, ChronoUnit.HOURS),
+            null
+        );
+
+        assertEquals(3L, timed.durationHours());
+    }
+
+    @Test
+    void expiredBanNeverReportsNegativeDuration() {
+        // истёкший бан мог простоять дольше срока — в тексте это «0h»,
+        // а не «-5h»
+        CloseBan expired = ban(Instant.now().minus(1, ChronoUnit.HOURS), false);
+        assertEquals(0L, expired.durationHours());
+    }
+
+    @Test
+    void foreverBanHasZeroDuration() {
+        assertEquals(0L, ban(null, false).durationHours(), "у бессрочного бана срока нет");
     }
 
     // ===== Тексты =====

@@ -6,24 +6,26 @@
 --
 -- Список плоский: кто обвинён, за что и до какого момента. Бан
 -- глобальный — игрок не запишется ни в один клоз, пока срок не истёк.
+--
+-- Ровно пять колонок под сценарий «забанил → вижу причину → разбан
+-- по окончании». Намеренно без:
+--   * id — на таблицу никто не ссылается, хватает времени в строке;
+--   * duration_hours — дублировал time_end (срок = now() + N часов,
+--     а «на сколько выдали» читается как time_end - created_at);
+--   * lifted — дублировал lifted_at (достаточно IS NOT NULL);
+--   * lifted_by — «кто разбанил» в задачу не входило.
 -- ===========================================================
 
 CREATE TABLE close_ban (
-    id          BIGSERIAL PRIMARY KEY,
     -- Discord id напрямую, а не через players: обвиняемый мог ни разу
     -- не выполнить /bind, и бан всё равно нужно уметь выдать
     discord_id  BIGINT NOT NULL,
     ban_reason  VARCHAR(1000) NOT NULL DEFAULT 'без причины',
-    -- на сколько часов выдали. 0 = навсегда
-    duration_hours INT NOT NULL DEFAULT 0 CHECK (duration_hours >= 0),
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
     -- NULL = бессрочный бан. Именно NULL, а не 0: истёкший срок и
     -- бессрочность — разные вещи
     time_end    TIMESTAMPTZ,
-    -- снят ли досрочно через /close_unban. Строка остаётся навсегда:
-    -- это лог и источник правды, а не текущее состояние
-    lifted      BOOLEAN NOT NULL DEFAULT FALSE,
-    lifted_by   BIGINT,
+    -- NULL = бан действует. Ненулевое = снят через /close_unban
     lifted_at   TIMESTAMPTZ
 );
 

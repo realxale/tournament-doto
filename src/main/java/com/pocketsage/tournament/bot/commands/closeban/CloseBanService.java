@@ -25,8 +25,12 @@ public class CloseBanService {
 
     private static final Logger log = LoggerFactory.getLogger(CloseBanService.class);
 
-    /** Срок в часах. */
-    public static final int FOREVER = CloseBan.FOREVER;
+    /**
+     * Срок в часах. Константа живёт здесь, а не в модели: в БД «навсегда»
+     * — это {@code time_end IS NULL}, отдельного значения для бессрочного
+     * бана не хранится.
+     */
+    public static final int FOREVER = 0;
 
     /**
      * Разумный предел: без него «99999» превратится в дату через 11 лет,
@@ -58,8 +62,8 @@ public class CloseBanService {
     }
 
     /** Снимает бан по Discord id игрока. false — бана не было. */
-    public boolean liftBan(long playerDiscordId, long issuerDiscordId) throws SQLException {
-        return bans.lift(playerDiscordId, issuerDiscordId) > 0;
+    public boolean liftBan(long playerDiscordId) throws SQLException {
+        return bans.lift(playerDiscordId) > 0;
     }
 
     /** История банов игрока — для /close_ban_show. */
@@ -142,7 +146,7 @@ public class CloseBanService {
     public static String formatRejection(CloseBan ban) {
         return "🚫 **Вы забанены в клозах**\n"
             + "Причина: " + ban.getReason() + "\n"
-            + "Срок: " + formatHours(ban.getDurationHours()) + "\n"
+            + "Срок: " + formatHours((int) ban.durationHours()) + "\n"
             + formatExpiry(ban)
             + "\nЕсли считаете это ошибкой — напишите администрации.";
     }
@@ -150,7 +154,7 @@ public class CloseBanService {
     /** Подтверждение выдачи — видит выдавший. */
     public static String formatIssued(CloseBan ban) {
         return "🔨 Бан выдан\n"
-            + "Срок: " + formatHours(ban.getDurationHours()) + "\n"
+            + "Срок: " + formatHours((int) ban.durationHours()) + "\n"
             + formatExpiry(ban)
             + "\nПричина: " + ban.getReason();
     }
@@ -177,11 +181,11 @@ public class CloseBanService {
             if (ban.isLifted()) {
                 text.append("снят ").append(DATE_FORMAT.format(ban.getLiftedAt()));
             } else if (ban.isActiveAt(Instant.now())) {
-                text.append("**АКТИВЕН** · ").append(formatHours(ban.getDurationHours()));
+                text.append("**АКТИВЕН** · ").append(formatHours((int) ban.durationHours()));
             } else {
-                text.append("истёк · ").append(formatHours(ban.getDurationHours()));
+                text.append("истёк · ").append(formatHours((int) ban.durationHours()));
             }
-            text.append("\nВыдан: ").append(DATE_FORMAT.format(ban.getTimeStart()));
+            text.append("\nВыдан: ").append(DATE_FORMAT.format(ban.getCreatedAt()));
             text.append("\nПричина: ").append(ban.getReason());
         }
         if (history.size() > shown) {

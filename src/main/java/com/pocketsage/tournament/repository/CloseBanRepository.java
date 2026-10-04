@@ -20,7 +20,7 @@ import java.util.Optional;
  *
  * <p>Таблица и есть источник правды: бан переживает перезапуск бота, а по
  * истечении срока перестаёт действовать сам — {@code time_end} сравнивается с
- * {@code now()} прямо в запросе.
+ * {@code now()} прямо в запросе, без очистки по таймеру.
  */
 public class CloseBanRepository {
 
@@ -29,15 +29,15 @@ public class CloseBanRepository {
      * иначе литерал в VALUES сдвинет нумерацию (см. грабли в ARCHITECTURE.md).
      */
     private static final String INSERT_SQL = """
-            INSERT INTO close_ban (discord_id, ban_reason, duration_hours, time_end)
-            VALUES (?, ?, ?, ?)
-            RETURNING id, created_at, time_end
+            INSERT INTO close_ban (discord_id, ban_reason, time_end)
+            VALUES (?, ?, ?)
+            RETURNING created_at
         """;
 
     private static final String SELECT_ACTIVE_SQL = """
             SELECT * FROM close_ban
              WHERE discord_id = ?
-               AND lifted = FALSE
+               AND lifted_at IS NULL
                AND (time_end IS NULL OR time_end > now())
              ORDER BY created_at DESC
              LIMIT 1
@@ -51,9 +51,9 @@ public class CloseBanRepository {
 
     private static final String LIFT_SQL = """
             UPDATE close_ban
-               SET lifted = TRUE, lifted_by = ?, lifted_at = now()
+               SET lifted_at = now()
              WHERE discord_id = ?
-               AND lifted = FALSE
+               AND lifted_at IS NULL
                AND (time_end IS NULL OR time_end > now())
         """;
 
@@ -71,14 +71,15 @@ public class CloseBanRepository {
     /**
      * Выдаёт бан.
      *
-     * @param discordId      к кому применён
-     * @param reason         причина
-     * @param durationHours  срок в часах, {@link CloseBan#FOREVER} = навсегда
+     * @param discordId     к кому применён
+     * @param reason        причина
+     * @param durationHours срок в часах; {@code 0} или меньше = навсегда
      */
     public CloseBan issue(long discordId, String reason, int durationHours) throws SQLException {
-        Instant timeEnd = durationHours == CloseBan.FOREVER
-            ? null
-            : Instant.now().plusSeconds(durationHours * 3600L);
+        // срок хранится только как time_end; 0 и отрицательные — навсегда
+        Instant timeEnd = durationHours > 0
+            ? Instant.now().plusSeconds(durationHours * 3600L)
+            : null;
 
         try (
             Connection conn = db.getConnection();
@@ -86,28 +87,22 @@ public class CloseBanRepository {
         ) {
             ps.setLong(1, discordId);
             ps.setString(2, reason);
-            ps.setInt(3, durationHours);
             if (timeEnd == null) {
                 // тип указываем явно: setNull без типа принимают не все драйверы
-                ps.setNull(4, Types.TIMESTAMP);
+                ps.setNull(3, Types.TIMESTAMP);
             } else {
-                ps.setTimestamp(4, Timestamp.from(timeEnd));
+                ps.setTimestamp(3, Timestamp.from(timeEnd));
             }
 
             try (ResultSet rs = ps.executeQuery()) {
                 if (!rs.next()) {
                     throw new SQLException("БД не вернула созданный бан");
                 }
-                Timestamp end = rs.getTimestamp("time_end");
                 return new CloseBan(
-                    rs.getLong("id"),
                     discordId,
                     reason,
-                    durationHours,
                     rs.getTimestamp("created_at").toInstant(),
-                    end == null ? null : end.toInstant(),
-                    false,
-                    null,
+                    timeEnd,
                     null
                 );
             }
@@ -152,13 +147,12 @@ public class CloseBanRepository {
      *
      * @return 1 — бан был и снят; 0 — бана не было
      */
-    public int lift(long discordId, long liftedBy) throws SQLException {
+    public int lift(long discordId) throws SQLException {
         try (
             Connection conn = db.getConnection();
             PreparedStatement ps = conn.prepareStatement(LIFT_SQL)
         ) {
-            ps.setLong(1, liftedBy);
-            ps.setLong(2, discordId);
+            ps.setLong(1, discordId);
             return ps.executeUpdate();
         }
     }
@@ -167,14 +161,10 @@ public class CloseBanRepository {
         Timestamp timeEnd = rs.getTimestamp("time_end");
         Timestamp liftedAt = rs.getTimestamp("lifted_at");
         return new CloseBan(
-            rs.getLong("id"),
             rs.getLong("discord_id"),
             rs.getString("ban_reason"),
-            rs.getInt("duration_hours"),
             rs.getTimestamp("created_at").toInstant(),
             timeEnd == null ? null : timeEnd.toInstant(),
-            rs.getBoolean("lifted"),
-            rs.getObject("lifted_by", Long.class),
             liftedAt == null ? null : liftedAt.toInstant()
         );
     }

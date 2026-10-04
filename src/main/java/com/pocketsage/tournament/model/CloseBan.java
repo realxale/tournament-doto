@@ -1,59 +1,41 @@
 package com.pocketsage.tournament.model;
 
+import java.time.Duration;
 import java.time.Instant;
 
 /**
  * Бан игрока в клозах — строка таблицы {@code close_ban}.
  *
- * <p>Срок в часах: администратору нужны «3 часа» и «навсегда», а пересчёт в
- * дни добавлял бы склонения и ошибки округления без пользы.
+ * <p>Бан глобальный: он не привязан к клозу и мешает записаться в любой.
  *
- * <p>Бан глобальный — он не привязан к клозу и мешает записаться в любой.
+ * <p><b>Срок выводится, а не хранится.</b> Отдельной колонки «на сколько часов»
+ * нет: {@code time_end} и есть срок, а «на сколько выдали» считается как
+ * {@code timeEnd - createdAt}. Для бессрочного бана {@code timeEnd == null}.
  *
- * <p><b>Бессрочность — это {@code timeEnd == null}.</b> Истёкший срок и
- * бессрочность выглядят по-разному, поэтому «до 1970 года» в качестве
- * обозначения вечности не используется.
+ * <p><b>Бессрочность и снятие — это NULL.</b> {@code timeEnd == null} значит
+ * «навсегда», {@code liftedAt == null} значит «ещё действует». Два отдельных
+ * флага для этого не нужны и могли бы разойтись с фактическим сроком.
  */
 public class CloseBan {
 
-    /** Бан без срока — до снятия через /close_unban. */
-    public static final int FOREVER = 0;
-
-    private Long id; // null до сохранения в БД
     private long discordId; // к кому применён, NOT NULL
     private String reason; // NOT NULL
-    private int durationHours; // 0 = навсегда
-    private Instant timeStart;
+    private Instant createdAt;
     private Instant timeEnd; // null = навсегда
-    private boolean lifted;
-    private Long liftedBy;
-    private Instant liftedAt;
+    private Instant liftedAt; // null = бан действует
 
     public CloseBan(
-        Long id,
         long discordId,
         String reason,
-        int durationHours,
-        Instant timeStart,
+        Instant createdAt,
         Instant timeEnd,
-        boolean lifted,
-        Long liftedBy,
         Instant liftedAt
     ) {
-        this.id = id;
         this.discordId = discordId;
         this.reason = reason;
-        this.durationHours = durationHours;
-        this.timeStart = timeStart;
+        this.createdAt = createdAt;
         this.timeEnd = timeEnd;
-        this.lifted = lifted;
-        this.liftedBy = liftedBy;
         this.liftedAt = liftedAt;
-    }
-
-    /** Проставляется репозиторием после INSERT — вручную не вызывается. */
-    public void setId(Long id) {
-        this.id = id;
     }
 
     /**
@@ -63,7 +45,7 @@ public class CloseBan {
      * прогнать на любой момент в тестах.
      */
     public boolean isActiveAt(Instant now) {
-        if (lifted) {
+        if (isLifted()) {
             return false;
         }
         return timeEnd == null || timeEnd.isAfter(now);
@@ -74,8 +56,25 @@ public class CloseBan {
         return timeEnd == null;
     }
 
-    public Long getId() {
-        return this.id;
+    /** Снят досрочно через /close_unban. */
+    public boolean isLifted() {
+        return liftedAt != null;
+    }
+
+    /**
+     * На сколько часов бан был выдан. Для бессрочного — 0.
+     *
+     * <p>Считается, а не хранится: иначе две колонки описывали бы одно и то же
+     * и могли бы разойтись.
+     */
+    public long durationHours() {
+        if (timeEnd == null || createdAt == null) {
+            return 0;
+        }
+        long hours = Duration.between(createdAt, timeEnd).toHours();
+        // у истёкшего бана разница отрицательная: он мог простоять дольше
+        // выданного срока. В тексте это должно читаться как «0h», а не «-5h»
+        return Math.max(0L, hours);
     }
 
     public long getDiscordId() {
@@ -86,24 +85,12 @@ public class CloseBan {
         return this.reason;
     }
 
-    public int getDurationHours() {
-        return this.durationHours;
-    }
-
-    public Instant getTimeStart() {
-        return this.timeStart;
+    public Instant getCreatedAt() {
+        return this.createdAt;
     }
 
     public Instant getTimeEnd() {
         return this.timeEnd;
-    }
-
-    public boolean isLifted() {
-        return this.lifted;
-    }
-
-    public Long getLiftedBy() {
-        return this.liftedBy;
     }
 
     public Instant getLiftedAt() {
